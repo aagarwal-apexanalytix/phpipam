@@ -166,7 +166,15 @@ class LockForUpdateMySQL extends LockForUpdateBase {
 
         $start_time = microtime(true);
         try {
-            $this->Database->runQuery("SET local innodb_lock_wait_timeout=$timeout;");
+            // innodb_lock_wait_timeout is MySQL/InnoDB-specific; non-InnoDB backends (e.g. OceanBase,
+            // reached via obproxy) reject it (SQL 1064) and would otherwise abort the whole locked
+            // write. Setting it only BOUNDS the FOR UPDATE wait — best-effort: on backends that don't
+            // support it, swallow the error and fall back to the server's default lock/txn timeout.
+            try {
+                $this->Database->runQuery("SET SESSION innodb_lock_wait_timeout=$timeout;");
+            } catch (Exception $set_e) {
+                // non-fatal: backend does not support innodb_lock_wait_timeout
+            }
 
             if (!$this->Database->beginTransaction()) {
                 throw new Exception(_('Unable to start transaction'));
